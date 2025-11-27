@@ -1,12 +1,24 @@
-import { Injectable} from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit} from '@nestjs/common';
 import { ExamsDAO } from './dao/exams.dao';
 import { ExamSessionStatus, QuestionType } from '@prisma/client';
 import { GrpcInvalidArgumentException, GrpcNotFoundException, GrpcPermissionDeniedException } from 'nestjs-grpc-exceptions';
 import { convertDates } from '../common/util/googleTimestamp.util';
+import type { ClientGrpc } from '@nestjs/microservices';
 
 @Injectable()
-export class ExamsService {
-    constructor(private readonly examsDAO: ExamsDAO) {}
+export class ExamsService implements OnModuleInit {
+    private coursesService;
+    constructor(
+        private readonly examsDAO: ExamsDAO,
+        @Inject('COURSE_GRPC') private readonly client: ClientGrpc,
+    ) {}
+
+    async onModuleInit(){
+      if (!this.client) {
+        throw new Error('COURSE_GRPC client is not injected');
+      }
+      this.coursesService = this.client.getService('CourseService');
+    }
 
     async seedExams() {
         const result = await this.examsDAO.seed();
@@ -148,7 +160,6 @@ export class ExamsService {
             }));
         }
 
-        console.log('Created exam session:', session);
 
         return convertDates(session);
     }
@@ -336,6 +347,27 @@ export class ExamsService {
         });
 
         return {sessions: convertDates(mappedSessions)};
+    }
+
+    private async getStudentCourses(studentId: string) {
+        if (!this.coursesService) {
+            throw new Error('coursesService is not initialized. onModuleInit may not have been called.');
+        }
+        return this.coursesService.getOffersForStudent({ studentId }).toPromise();
+    }
+
+    async getStudentExams(studentId: string) {
+        const studentCourses = await this.getStudentCourses(studentId);
+        const courseIds = studentCourses.offers.map(offer => offer.courseId);
+
+        const exams = await this.examsDAO.getExamsByCourses(courseIds);
+        
+        const parsedExams = exams.map((exam: any) => ({
+            ...exam,
+            questionCount: exam._count?.questions,
+            sessionCount: exam._count?.examSessions
+        }));
+        return {exams: convertDates(parsedExams)};
     }
 
     /********************************************************************************************** */

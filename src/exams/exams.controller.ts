@@ -12,6 +12,11 @@ export class ExamsController {
     return this.examsService.seedExams();
   }
 
+  @GrpcMethod('ExamService', 'GetStudentExams')
+  async getStudentExams(data: { studentId: string }, metadata: any) {
+    return this.examsService.getStudentExams(data.studentId);
+  }
+
   @GrpcMethod('ExamService', 'CreateExam')
   async createExam(data: {
     title: string;

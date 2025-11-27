@@ -320,14 +320,6 @@ export class ExamsDAO {
     async getExamsByCourse(courseId: string) {
         return this.prisma.exam.findMany({
             where: { courseId },
-            include: {
-                _count: {
-                    select: {
-                        questions: true,
-                        examSessions: true
-                    }
-                }
-            },
             orderBy: { startTime: 'asc' }
         });
     }
@@ -462,6 +454,14 @@ export class ExamsDAO {
                 }
             },
             orderBy: { createdAt: 'desc' }
+        });
+    }
+
+    async getExamsByCourses(courseIds: string[]) {
+        return this.prisma.exam.findMany({
+            where: {
+                courseId: { in: courseIds }
+            }
         });
     }
 
