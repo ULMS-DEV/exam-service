@@ -1,0 +1,151 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE      // Single correct answer
+  MULTI_SELECT         // Multiple correct answers
+  TRUE_FALSE           // True/False questions
+  FILL_IN_BLANK        // Complete the sentence
+  SHORT_ANSWER         // Short written answer
+  ESSAY                // Long written answer
+  MATCHING             // Match items from two lists
+  ORDERING             // Put items in correct order
+}
+
+enum ExamSessionStatus {
+  SCHEDULED   // Not started yet
+  IN_PROGRESS // Currently taking the exam
+  COMPLETED   // Finished the exam
+  EXPIRED     // Time limit exceeded
+  CANCELLED   // Session cancelled
+}
+
+model Exam {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  duration    Int      // Duration in minutes
+  totalMarks  Float    @default(0)
+  passingMarks Float   @default(0)
+  startTime   DateTime // When exam becomes available
+  endTime     DateTime // When exam closes
+  courseId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questions    Question[]
+  examSessions ExamSession[]
+
+  @@index([courseId])
+  @@index([startTime, endTime])
+}
+
+model Question {
+  id          String       @id @default(uuid())
+  examId      String
+  type        QuestionType
+  text        String       @db.Text
+  explanation String?      @db.Text // Explanation for the correct answer
+  marks       Float        @default(1)
+  
+  // For MCQ, Multi-Select, True/False
+  options     Json? // Array of option objects: [{id: string, text: string}]
+  
+  // For MCQ and Multi-Select
+  correctOptions String[] @default([]) // Array of correct option IDs
+  
+  // For Fill-in-blank, Matching, Ordering
+  correctAnswer Json? // Flexible structure for different answer types
+  
+  // For auto-grading configuration
+  caseSensitive Boolean @default(false)
+  partialCredit Boolean @default(false)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  exam    Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  answers Answer[]
+
+  @@index([examId])
+  @@index([type])
+}
+
+model ExamSession {
+  id         String            @id @default(uuid())
+  examId     String
+  studentId  String
+  status     ExamSessionStatus @default(SCHEDULED)
+  
+  // Timestamps
+  scheduledStartTime DateTime // When student is scheduled to start
+  scheduledEndTime   DateTime // When student must finish by
+  actualStartTime    DateTime? // When student actually started
+  actualEndTime      DateTime? // When student actually submitted
+  lastActivityAt     DateTime? // Track last interaction for timeout
+  
+  // Attempt tracking
+  attemptNumber Int @default(1)
+  
+  // Results
+  totalScore      Float? // Final calculated score
+  percentage      Float? // Score percentage
+  isPassed        Boolean? // Whether student passed
+  isGraded        Boolean @default(false) // Whether all answers are graded
+  
+  // Metadata
+  ipAddress       String?
+  userAgent       String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  exam    Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  answers Answer[]
+
+  @@unique([examId, studentId, attemptNumber])
+  @@index([studentId])
+  @@index([status])
+  @@index([scheduledStartTime, scheduledEndTime])
+}
+
+model Answer {
+  id            String   @id @default(uuid())
+  questionId    String
+  examSessionId String
+  
+  // Student's answer (flexible to accommodate different question types)
+  selectedOptions String[] @default([]) // For MCQ and Multi-Select
+  textAnswer      String?  @db.Text     // For written answers
+  structuredAnswer Json?                // For matching, ordering, etc.
+  
+  // Grading
+  isCorrect     Boolean? // Auto-graded or manually graded
+  marksAwarded  Float    @default(0)
+  feedback      String?  @db.Text // Teacher's feedback
+  gradedBy      String? // Teacher/grader ID
+  gradedAt      DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  question    Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  examSession ExamSession @relation(fields: [examSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([examSessionId, questionId])
+  @@index([examSessionId])
+  @@index([questionId])
+  @@index([isCorrect])
+}
